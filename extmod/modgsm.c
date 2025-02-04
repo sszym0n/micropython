@@ -52,7 +52,10 @@ STATIC mp_obj_t mod_gsm_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 			{ MP_QSTR_wait,	                          MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
 			{ MP_QSTR_rts,		                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
 			{ MP_QSTR_cts,		                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
-            { MP_QSTR_roaming,                        MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
+			{ MP_QSTR_roaming,                        MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
+            { MP_QSTR_op_select,                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
+            { MP_QSTR_op_id,                          MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+            { MP_QSTR_op_tech,                        MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
 	};
 	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -60,7 +63,8 @@ STATIC mp_obj_t mod_gsm_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     char user[GSM_MAX_NAME_LEN] = {0};
     char pass[GSM_MAX_NAME_LEN] = {0};
     char apn[GSM_MAX_NAME_LEN] = {0};
-    int rx, tx, bdr, err = 0;
+	char operator[GSM_MAX_OPERATOR_LEN] = {0};
+    int rx, tx, bdr, err = 0, op_select, op_tech;
 
     if (MP_OBJ_IS_STR(args[3].u_obj)) {
         snprintf(user, GSM_MAX_NAME_LEN, mp_obj_str_get_str(args[3].u_obj));
@@ -78,15 +82,22 @@ STATIC mp_obj_t mod_gsm_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 		goto exit;
 	}
 
+	if (MP_OBJ_IS_STR(args[12].u_obj)) {
+    	snprintf(operator, GSM_MAX_OPERATOR_LEN, mp_obj_str_get_str(args[12].u_obj));
+    }
+
     tx = args[0].u_int;
     rx = args[1].u_int;
     bdr = args[2].u_int;
+	op_select = args[11].u_int;
+	op_tech = args[13].u_int;
     if ((tx < 0) || (rx < 0)) {
     	err = -11;
     	goto exit;
     }
 
-    int res = ppposInit(tx, rx, args[8].u_int, args[9].u_int, bdr, user, pass, apn, args[7].u_bool, args[6].u_bool, args[10].u_bool);
+
+    int res = ppposInit(tx, rx, args[8].u_int, args[9].u_int, bdr, user, pass, apn, args[7].u_bool, args[6].u_bool, args[10].u_bool, op_select, operator, op_tech);
 
     if (res == 0) return mp_const_true;
 

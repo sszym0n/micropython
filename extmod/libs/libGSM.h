@@ -37,6 +37,7 @@
 #define GSM_STATE_IDLE			89
 #define GSM_STATE_FIRSTINIT		98
 #define GSM_MAX_NAME_LEN		32
+#define GSM_MAX_OPERATOR_LEN	6
 
 #define SMS_SORT_NONE	0
 #define SMS_SORT_ASC	1
@@ -76,7 +77,7 @@ typedef struct
  * If 'doconn' = 0, only initialize the task, do not connect to Internet
  */
 //=================================================================================================================================
-int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn, bool roaming);
+int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn, bool roaming, int opselect, char *operator, int opmode);
 
 /*
  * Disconnect from Internet

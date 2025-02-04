@@ -74,12 +74,15 @@ static QueueHandle_t pppos_mutex = NULL;
 static char PPP_User[GSM_MAX_NAME_LEN] = {0};
 static char PPP_Pass[GSM_MAX_NAME_LEN] = {0};
 static char GSM_APN[GSM_MAX_NAME_LEN] = {0};
+static char GSM_Operator[GSM_MAX_OPERATOR_LEN] = {0};
 static int uart_num = UART_NUM_1;
 static int gsm_pin_tx = UART_PIN_NO_CHANGE;
 static int gsm_pin_rx = UART_PIN_NO_CHANGE;
 static int gsm_pin_cts = UART_PIN_NO_CHANGE;
 static int gsm_pin_rts = UART_PIN_NO_CHANGE;
 static int gsm_baudrate = 115200;
+static int gsm_op_mode = -1;
+static int gsm_op_select = -1;
 static uint8_t tcpip_adapter_initialized = 0;
 static uint32_t sms_timer = 0;
 static bool allow_roaming = false;
@@ -136,6 +139,28 @@ static GSM_Cmd cmd_Reset =
 	.skip = 0,
 };
 
+static GSM_Cmd cmd_PrefMode =
+{
+	// CNMP: ((2-Automatic),(13-GSM Only),(38-LTE Only),(51-GSM And LTE Only))
+	.cmd = "AT+CNMP=2\r\n",
+	.cmdSize = -1,
+	.cmdResponseOnOk = GSM_OK_Str,
+	.timeoutMs = 300,
+	.delayMs = 0,
+	.skip = 0,
+};
+
+static GSM_Cmd cmd_PrefSel =
+{
+	// CMNB: ((1-Cat-M),(2-NB-IoT),(3-Cat-M And NB-IoT))
+	.cmd = "AT+CMNB=3\r\n",
+	.cmdSize = -1,
+	.cmdResponseOnOk = GSM_OK_Str,
+	.timeoutMs = 300,
+	.delayMs = 0,
+	.skip = 0,
+};
+
 static GSM_Cmd cmd_RFOn =
 {
 	.cmd = "AT+CFUN=1\r\n",
@@ -162,7 +187,17 @@ static GSM_Cmd cmd_Pin =
 	.cmdSize = -1,
 	.cmdResponseOnOk = "CPIN: READY",
 	.timeoutMs = 5000,
-	.delayMs = 0,
+	.delayMs = 1000,
+	.skip = 0,
+};
+
+static GSM_Cmd cmd_Operators =
+{
+	.cmd = "AT+COPS=0,0\r\n",
+	.cmdSize = -1,
+	.cmdResponseOnOk = GSM_OK_Str,
+	.timeoutMs = 60000,
+	.delayMs = 1000,
 	.skip = 0,
 };
 
@@ -188,8 +223,8 @@ static GSM_Cmd cmd_APN =
 
 static GSM_Cmd cmd_Connect =
 {
-	.cmd = "AT+CGDATA=\"PPP\",1\r\n",
-	//.cmd = "ATDT*99***1#\r\n",
+	//.cmd = "AT+CGDATA=\"PPP\",1\r\n",
+	.cmd = "ATDT*99***1#\r\n",
 	.cmdSize = -1,
 	.cmdResponseOnOk = "CONNECT",
 	.timeoutMs = 30000,
@@ -201,9 +236,12 @@ static GSM_Cmd *GSM_Init[] =
 {
 		&cmd_AT,
 		&cmd_Reset,
+		&cmd_PrefMode,
+		&cmd_PrefSel,
 		&cmd_EchoOff,
 		&cmd_RFOn,
 		&cmd_Pin,
+		&cmd_Operators,
 		&cmd_Reg,
 		&cmd_NoSMSInd,
 		&cmd_APN,
@@ -626,6 +664,7 @@ static void pppos_client_task()
 	xSemaphoreGive(pppos_mutex);
 
 	char PPP_ApnATReq[strlen(GSM_APN)+24];
+	char PPP_OperatorATReq[strlen(GSM_Operator)+24];
     // Allocate receive buffer
     char* data = (char*) malloc(BUF_SIZE);
     if (data == NULL) {
@@ -676,7 +715,15 @@ static void pppos_client_task()
 	cmd_APN.cmd = PPP_ApnATReq;
 	cmd_APN.cmdSize = strlen(PPP_ApnATReq);
 
-	_disconnect(1); // Disconnect if connected
+	//set operator from config
+	if (gsm_op_select > -1 && (strlen(GSM_Operator) > 0) && (gsm_op_mode > -1)) {
+		sprintf(PPP_OperatorATReq, "AT+COPS=%d,2,\"%s\",%d\r\n", gsm_op_select, GSM_Operator, gsm_op_mode);
+		cmd_Operators.cmd = PPP_OperatorATReq;
+		cmd_Operators.cmdSize = strlen(PPP_OperatorATReq);
+		ESP_LOGI(TAG, "Operator set to %s with mode %d and select %d", GSM_Operator, gsm_op_mode, gsm_op_select);
+	}
+
+	_disconnect(0); // Disconnect if connected
 
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
     pppos_tx_count = 0;
@@ -794,6 +841,7 @@ static void pppos_client_task()
 			enableAllInitCmd();
 			cmd_Connect.skip = 0;
 			cmd_APN.skip = 0;
+			cmd_Operators.skip = 1;
 			xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 			do_pppos_connect = 1;
 			xSemaphoreGive(pppos_mutex);
@@ -939,7 +987,7 @@ exit:
 }
 
 //=================================================================================================================================
-int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn, bool roaming)
+int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn, bool roaming, int opselect, char *operator, int opmode)
 {
 	if (pppos_mutex != NULL) xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	do_pppos_connect = doconn;
@@ -955,9 +1003,12 @@ int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass,
 		gsm_pin_cts = cts;
 		gsm_pin_rts = rts;
 		gsm_baudrate = bdr;
+		gsm_op_select = opselect;
+		gsm_op_mode = opmode;
 		strncpy(PPP_User, user, GSM_MAX_NAME_LEN);
 		strncpy(PPP_Pass, pass, GSM_MAX_NAME_LEN);
 		strncpy(GSM_APN, apn, GSM_MAX_NAME_LEN);
+		strncpy(GSM_Operator, operator, GSM_MAX_OPERATOR_LEN);
 
 		if (pppos_mutex == NULL) pppos_mutex = xSemaphoreCreateMutex();
 		if (pppos_mutex == NULL) return -1;
