@@ -196,7 +196,7 @@ static GSM_Cmd cmd_Operators =
 	.cmd = "AT+COPS=0,0\r\n",
 	.cmdSize = -1,
 	.cmdResponseOnOk = GSM_OK_Str,
-	.timeoutMs = 60000,
+	.timeoutMs = 5000,
 	.delayMs = 1000,
 	.skip = 0,
 };
